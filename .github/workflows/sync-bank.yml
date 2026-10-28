@@ -1,0 +1,58 @@
+name: Sync question bank into this repository
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "README.md"
+      - ".github/workflows/sync-bank.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: sync-question-bank
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out sup
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Download source question bank into sup
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p data
+          curl --fail --location --retry 3 --retry-delay 2 \
+            https://raw.githubusercontent.com/sumilee-phd/NA2-study/main/public/data/bank.json \
+            --output data/bank.json
+          node --input-type=module -e "
+            import fs from 'node:fs';
+            const bank = JSON.parse(fs.readFileSync('data/bank.json', 'utf8'));
+            if (!Array.isArray(bank.exams) || !Array.isArray(bank.questions)) {
+              throw new Error('Unexpected question bank format');
+            }
+            console.log('Validated:', bank.exams.length, 'exams,', bank.questions.length, 'questions');
+            console.log('File size:', fs.statSync('data/bank.json').size, 'bytes');
+          "
+
+      - name: Commit the data file into sup
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/bank.json
+          if git diff --cached --quiet; then
+            echo "Question bank is already up to date."
+          else
+            git commit -m "Sync question bank into repository"
+            git push
+          fi
